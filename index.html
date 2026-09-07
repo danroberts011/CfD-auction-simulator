@@ -181,7 +181,11 @@ function renderStackHeatmap(comps,own,gov,rule,runs,scenario){
       bidsSample.push(cb); ymin=Math.min(ymin,cb); ymax=Math.max(ymax,cb);
     }
     const gv=rule==='budget'?quantileValue(gov.b25,gov.b50,gov.b75,scenario.govU[k]):quantileValue(gov.c25,gov.c50,gov.c75,scenario.govU[k]);
-    govSample.push(gv); ymin=Math.min(ymin,gv); ymax=Math.max(ymax,gv);
+    govSample.push(gv);
+    // In WTP mode Government's constraint is a strike price and belongs on the y-axis.
+    // In budget mode the constraint is expressed as a cumulative MW cut-off, so it must not
+    // affect the strike-price axis range.
+    if(rule==='cap'){ ymin=Math.min(ymin,gv); ymax=Math.max(ymax,gv); }
     // Our bid is fixed and belongs on the stack.
     ymin=Math.min(ymin,own.bid); ymax=Math.max(ymax,own.bid);
   }
