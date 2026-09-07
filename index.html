@@ -1,26 +1,125 @@
-<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>CfD Auction Simulator</title>
-<style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f5f6f8;color:#18202a}header{background:#132238;color:white;padding:24px 5%}main{max-width:1200px;margin:24px auto;padding:0 18px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:white;border-radius:12px;padding:18px;box-shadow:0 1px 5px #0002}h2{margin-top:0}table{width:100%;border-collapse:collapse}th,td{padding:7px;border-bottom:1px solid #ddd;text-align:right}th:first-child,td:first-child{text-align:left}input{width:90px;padding:6px}button{padding:9px 14px;border:0;border-radius:8px;background:#1d5d89;color:white;font-weight:600;cursor:pointer}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.kpi{background:#eef2f6;padding:12px;border-radius:9px}.big{font-size:24px;font-weight:700}.muted{color:#667085;font-size:13px}canvas{width:100%;height:270px;border:1px solid #eee;border-radius:8px}.wide{grid-column:1/-1}@media(max-width:800px){.grid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}}</style></head>
-<body><header><h1>CfD Auction Simulator</h1><div>Prototype: competitive bid strategy under uncertainty</div></header><main><div class='grid'>
-<div class='card'><h2>1. Competitive field</h2><div class='muted'>Enter your belief about each competitor's bid distribution. P50 is the central estimate.</div><table id='ct'><thead><tr><th>Project</th><th>MW</th><th>P25 £m</th><th>P50 £m</th><th>P75 £m</th></tr></thead><tbody></tbody></table><p><button onclick='addRow()'>+ competitor</button> <button onclick='removeRow()'>− competitor</button></p></div>
-<div class='card'><h2>2. Auction & your project</h2><p>Government budget £m <input id='budget' type='number' value='1800'></p><p>Your capacity MW <input id='ownmw' type='number' value='500'></p><p>Your economic floor £m <input id='floor' type='number' value='500'></p><p>Your bid adjustment % <input id='shade' type='number' value='10' step='1'></p><p>Simulation runs <input id='runs' type='number' value='20000' step='5000'></p><button onclick='run()'>Run simulation</button><p class='muted'>Competitor bid draws use a split-normal approximation calibrated to P25/P50/P75. Your bid is fixed.</p></div>
-<div class='card wide'><h2>Results at your selected bid</h2><div class='kpis'><div class='kpi'><div class='muted'>Your bid</div><div class='big' id='kb'>—</div></div><div class='kpi'><div class='muted'>Probability of award</div><div class='big' id='kp'>—</div></div><div class='kpi'><div class='muted'>Value if awarded</div><div class='big' id='kv'>—</div></div><div class='kpi'><div class='muted'>Expected value</div><div class='big' id='ke'>—</div></div></div><p id='trade'></p></div>
-<div class='card'><h2>Probability of winning</h2><canvas id='prob' width='550' height='270'></canvas><div class='muted'>Bid (£m) → estimated probability of award</div></div>
-<div class='card'><h2>Expected value</h2><canvas id='ev' width='550' height='270'></canvas><div class='muted'>P(award) × (bid − economic floor)</div></div>
-<div class='card wide'><h2>Competitive threshold</h2><p>The competitive threshold is the highest bid you could submit and still win in each simulated auction.</p><div class='kpis' id='thresholds'></div></div>
-</div></main>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CfD Auction Simulator v2</title>
+<style>
+:root{--ink:#18202a;--muted:#667085;--navy:#132238;--blue:#1d5d89;--light:#eef2f6;--line:#dfe4ea;--bg:#f5f6f8;--red:#b23b3b}
+*{box-sizing:border-box} body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:22px 5%} header h1{margin:0 0 4px;font-size:28px} header div{opacity:.82;font-size:14px}
+main{max-width:1250px;margin:22px auto;padding:0 16px}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}.card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 1px 5px #00000012}.wide{grid-column:1/-1}
+h2{font-size:18px;margin:0 0 10px}.muted{color:var(--muted);font-size:13px;line-height:1.45}label{font-size:13px;color:var(--muted);display:block;margin-bottom:5px}input,select,button{font:inherit}input,select{padding:7px 8px;border:1px solid #cfd6de;border-radius:7px;background:#fff;width:100%}button{padding:8px 12px;border:0;border-radius:8px;background:var(--blue);color:#fff;font-weight:650;cursor:pointer}.secondary{background:#6b7280}.danger{background:#8b3a3a}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{margin:0 0 12px}.inline{display:flex;gap:8px;align-items:center}.inline input{width:110px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}th:first-child,td:first-child{text-align:left}th{font-size:12px;color:var(--muted);font-weight:650}.cell{width:95px}.smallbtn{padding:6px 9px;font-size:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:9px}.kpi{background:var(--light);padding:11px;border-radius:9px}.big{font-size:22px;font-weight:750}.sub{font-size:12px;color:var(--muted);margin-top:2px}
+.chartgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.chart{width:100%;height:285px;border:1px solid #edf0f3;border-radius:8px;background:#fff}.note{margin-top:8px;font-size:12px;color:var(--muted)}
+.barrow{display:grid;grid-template-columns:150px 1fr 90px;gap:10px;align-items:center;margin:8px 0;font-size:13px}.bar{height:12px;background:#edf1f5;border-radius:8px;overflow:hidden}.bar>span{display:block;height:100%;background:var(--blue)}
+.status{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--light);font-size:12px;color:var(--muted)}
+@media(max-width:900px){.grid{grid-template-columns:1fr}.chartgrid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}.wide{grid-column:auto}}
+</style>
+</head>
+<body>
+<header><h1>CfD Auction Simulator</h1><div>Prototype: competitive bid strategy under uncertainty</div></header>
+<main>
+<div class="grid">
+<section class="card">
+<h2>1. Competitive field</h2>
+<div class="muted">Enter your belief about each competitor's bid distribution. P50 is the central estimate. Load factor defaults to 60% so the same auction can be viewed in £m budget or £/MWh terms.</div>
+<div style="overflow:auto;margin-top:10px">
+<table id="ct"><thead><tr><th>Project</th><th>MW</th><th>Load factor</th><th>P25 bid £m</th><th>P50 bid £m</th><th>P75 bid £m</th><th></th></tr></thead><tbody></tbody></table>
+</div>
+<div class="inline" style="margin-top:12px"><button onclick="addRow()">+ competitor</button><button class="secondary" onclick="removeRow()">− competitor</button></div>
+</section>
+
+<section class="card">
+<h2>2. Government auction</h2>
+<div class="field"><label>Demand rule</label><select id="rule" onchange="toggleRule()"><option value="budget">Budget constrained</option><option value="cap">Maximum strike price</option></select></div>
+<div class="controls">
+<div class="field" id="budgetWrap"><label>Government budget (£m)</label><input id="budget" type="number" value="1800" step="50"></div>
+<div class="field" id="capWrap" style="display:none"><label>Maximum strike price (£/MWh)</label><input id="cap" type="number" value="85" step="1"></div>
+</div>
+<hr style="border:0;border-top:1px solid var(--line);margin:6px 0 14px">
+<h2>3. Your project</h2>
+<div class="controls">
+<div class="field"><label>Capacity (MW)</label><input id="ownmw" type="number" value="500" step="10"></div>
+<div class="field"><label>Load factor (%)</label><input id="ownlf" type="number" value="60" step="1"></div>
+<div class="field"><label>Minimum acceptable bid (£m)</label><input id="floor" type="number" value="500" step="5"></div>
+<div class="field"><label>Bid adjustment (%)</label><input id="shade" type="number" value="10" step="1"></div>
+</div>
+<div class="field"><label>Simulation runs</label><input id="runs" type="number" value="20000" step="5000"></div>
+<button onclick="run()">Run simulation</button>
+<div class="muted" style="margin-top:8px">Competitor bids use a split-normal approximation calibrated to P25/P50/P75. Your bid is fixed. Projects are ranked by implied £/MWh. In budget mode, accepted project bids count against the £m budget.</div>
+</section>
+
+<section class="card wide">
+<h2>Results at your selected bid</h2>
+<div class="kpis">
+<div class="kpi"><div class="muted">Your bid</div><div class="big" id="kb">—</div><div class="sub" id="kb2">—</div></div>
+<div class="kpi"><div class="muted">Probability of award</div><div class="big" id="kp">—</div><div class="sub">Monte Carlo estimate</div></div>
+<div class="kpi"><div class="muted">Value if awarded</div><div class="big" id="kv">—</div><div class="sub">Bid minus floor</div></div>
+<div class="kpi"><div class="muted">Expected value</div><div class="big" id="ke">—</div><div class="sub">P(award) × value</div></div>
+<div class="kpi"><div class="muted">Expected MW awarded</div><div class="big" id="kamw">—</div><div class="sub" id="kamw2">—</div></div>
+</div>
+<p id="trade" style="margin-bottom:0"></p>
+</section>
+
+<section class="card wide">
+<h2>Bid strategy</h2>
+<div class="chartgrid">
+<div><canvas id="prob" class="chart" width="620" height="285"></canvas><div class="note">Your bid → estimated probability of award. The red point is your selected bid.</div></div>
+<div><canvas id="ev" class="chart" width="620" height="285"></canvas><div class="note">Your bid → expected value. This is a decision frontier, not a recommendation.</div></div>
+</div>
+</section>
+
+<section class="card">
+<h2>Competitive threshold</h2>
+<div class="muted">Distribution of the highest implied strike price you could bid and still be accepted in each simulated auction.</div>
+<div class="kpis" id="thresholds" style="grid-template-columns:repeat(5,1fr);margin-top:10px"></div>
+</section>
+
+<section class="card">
+<h2>Auction outcome</h2>
+<div id="auctionOutcome" class="muted">Run a simulation to see the distribution of total awarded capacity and the marginal winning bid.</div>
+</section>
+
+<section class="card wide">
+<h2>Which competitor matters most?</h2>
+<div class="muted">Standard sensitivity: reduce one competitor's entire bid distribution by 10% and measure the change in your probability of winning and expected value.</div>
+<div id="threats" style="margin-top:10px"></div>
+</section>
+</div>
+</main>
 <script>
-const defaults=[[500,410,450,490],[400,350,390,430],[600,510,570,630],[300,275,310,345],[700,630,700,770]];
-function addRow(v){let b=document.querySelector('#ct tbody'),i=b.rows.length, r=b.insertRow(); let x=v||[400,350,400,450]; r.innerHTML=`<td>Competitor ${String.fromCharCode(65+i)}</td>${x.map(z=>`<td><input type=number value='${z}'></td>`).join('')}`}
-function removeRow(){let b=document.querySelector('#ct tbody');if(b.rows.length>1)b.deleteRow(-1)} defaults.forEach(addRow);
+const defaults=[
+  [500,60,410,450,490],
+  [400,60,350,390,430],
+  [600,60,510,570,630],
+  [300,60,275,310,345],
+  [700,60,630,700,770]
+];
+function addRow(v){const b=document.querySelector('#ct tbody'),i=b.rows.length;const x=v||[400,60,350,400,450];const r=b.insertRow();r.dataset.idx=i;r.innerHTML=`<td>Competitor ${String.fromCharCode(65+i)}</td>${x.map(z=>`<td><input class="cell" type="number" value="${z}" step="1"></td>`).join('')}<td><button class="danger smallbtn" onclick="this.closest('tr').remove();renumber()">remove</button></td>`}
+function removeRow(){const b=document.querySelector('#ct tbody');if(b.rows.length>1)b.deleteRow(-1);renumber()}
+function renumber(){[...document.querySelectorAll('#ct tbody tr')].forEach((r,i)=>r.cells[0].textContent='Competitor '+String.fromCharCode(65+i))}
+defaults.forEach(addRow);
+function toggleRule(){const r=document.getElementById('rule').value;document.getElementById('budgetWrap').style.display=r==='budget'?'block':'none';document.getElementById('capWrap').style.display=r==='cap'?'block':'none'}
 function randn(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
-function draw(p25,p50,p75){let z=.67448975, g=randn(); return Math.max(0,p50+g*(g<0?(p50-p25)/z:(p75-p50)/z))}
-function inputs(){return [...document.querySelectorAll('#ct tbody tr')].map(r=>{let a=[...r.querySelectorAll('input')].map(x=>+x.value);return {mw:a[0],p25:a[1],p50:a[2],p75:a[3]}})}
-function winsAt(bid,comps,budget,ownmw){let ps=comps.map(c=>({mw:c.mw,bid:draw(c.p25,c.p50,c.p75)}));ps.push({mw:ownmw,bid:bid,own:true});ps.sort((a,b)=>a.bid/a.mw-b.bid/b.mw);let spent=0;for(let p of ps){if(spent+p.bid<=budget){spent+=p.bid;if(p.own)return true}else if(p.own)return false}return false}
-function threshold(comps,budget,ownmw){let ps=comps.map(c=>({mw:c.mw,bid:draw(c.p25,c.p50,c.p75)})).sort((a,b)=>a.bid/a.mw-b.bid/b.mw);let spent=0, maxRatio=Infinity; for(let p of ps){if(spent+p.bid<=budget){spent+=p.bid}else{maxRatio=p.bid/p.mw;break}} return isFinite(maxRatio)?maxRatio*ownmw:Math.max(0,budget-spent)}
-function chart(id,x,y,sel){let c=document.getElementById(id),ctx=c.getContext('2d'),W=c.width,H=c.height,m={l:48,r:15,t:15,b:35};ctx.clearRect(0,0,W,H);let ymin=Math.min(0,...y),ymax=Math.max(...y);if(ymax==ymin)ymax=ymin+1;let X=v=>m.l+(v-x[0])/(x.at(-1)-x[0])*(W-m.l-m.r),Y=v=>H-m.b-(v-ymin)/(ymax-ymin)*(H-m.t-m.b);ctx.strokeStyle='#bbb';ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();ctx.strokeStyle='#1d5d89';ctx.lineWidth=3;ctx.beginPath();x.forEach((v,i)=>i?ctx.lineTo(X(v),Y(y[i])):ctx.moveTo(X(v),Y(y[i])));ctx.stroke();ctx.fillStyle='#222';ctx.font='12px system-ui';ctx.fillText(x[0].toFixed(0),m.l,H-10);ctx.fillText(x.at(-1).toFixed(0),W-m.r-28,H-10);ctx.fillText(ymax.toFixed(id==='prob'?2:0),5,m.t+5);ctx.fillText(ymin.toFixed(id==='prob'?2:0),5,H-m.b);let j=x.reduce((a,v,i)=>Math.abs(v-sel)<Math.abs(x[a]-sel)?i:a,0);ctx.fillStyle='#b23b3b';ctx.beginPath();ctx.arc(X(x[j]),Y(y[j]),5,0,7);ctx.fill()}
-function q(a,p){a.sort((x,y)=>x-y);return a[Math.floor((a.length-1)*p)]}
-function run(){let comps=inputs(),budget=+document.getElementById('budget').value,ownmw=+document.getElementById('ownmw').value,floor=+document.getElementById('floor').value,shade=+document.getElementById('shade').value,runs=Math.max(1000,+document.getElementById('runs').value),selected=floor*(1+shade/100);let lo=Math.max(1,floor*.75),hi=floor*1.35,n=31,x=[],p=[],e=[];for(let j=0;j<n;j++){let b=lo+(hi-lo)*j/(n-1),w=0;for(let k=0;k<runs;k++)if(winsAt(b,comps,budget,ownmw))w++;let pr=w/runs;x.push(b);p.push(pr);e.push(pr*(b-floor))}let idx=x.reduce((a,v,i)=>Math.abs(v-selected)<Math.abs(x[a]-selected)?i:a,0),pr=p[idx],val=selected-floor;document.getElementById('kb').textContent='£'+selected.toFixed(0)+'m';document.getElementById('kp').textContent=(pr*100).toFixed(1)+'%';document.getElementById('kv').textContent=(val>=0?'+':'−')+'£'+Math.abs(val).toFixed(0)+'m';document.getElementById('ke').textContent=(pr*val>=0?'+':'−')+'£'+Math.abs(pr*val).toFixed(1)+'m';
-function interp(target){let b=selected+target,ii=x.reduce((a,v,i)=>Math.abs(v-b)<Math.abs(x[a]-b)?i:a,0);return p[ii]}
-let d=Math.max(5,Math.round(floor*.05/5)*5);document.getElementById('trade').innerHTML=`Bid <b>£${d}m lower</b>: award probability ≈ <b>${(interp(-d)*100).toFixed(0)}%</b>. &nbsp; Bid <b>£${d}m higher</b>: award probability ≈ <b>${(interp(d)*100).toFixed(0)}%</b>.`;
-chart('prob',x,p,selected);chart('ev',x,e,selected);let ts=[];for(let k=0;k<runs;k++)ts.push(threshold(comps,budget,ownmw));let qs=[[.1,'P10'],[.25,'P25'],[.5,'P50'],[.75,'P75'],[.9,'P90']];document.getElementById('thresholds').innerHTML=qs.map(([z,l])=>`<div class=kpi><div class=muted>${l}</div><div class=big>£${q(ts,z).toFixed(0)}m</div></div>`).join('')}
-run();</script></body></html>
+function draw(p25,p50,p75){const z=.67448975,g=randn();return Math.max(0,p50+g*(g<0?(p50-p25)/z:(p75-p50)/z))}
+function inputs(){return [...document.querySelectorAll('#ct tbody tr')].map(r=>{const a=[...r.querySelectorAll('input')].map(x=>+x.value);return {mw:a[0],lf:a[1]/100,p25:a[2],p50:a[3],p75:a[4]}}).filter(c=>c.mw>0&&c.lf>0&&c.p50>=0)}
+function strikePerMWh(bid,mw,lf){return bid/(mw*8760*lf)*1e6}
+function auctionOnce(comps,own,budget,cap,rule){let ps=comps.map((c,i)=>{const bid=draw(c.p25,c.p50,c.p75);return {name:'Competitor '+String.fromCharCode(65+i),mw:c.mw,lf:c.lf,bid,strike:strikePerMWh(bid,c.mw,c.lf),own:false,index:i}});ps.push({name:'Us',mw:own.mw,lf:own.lf,bid:own.bid,strike:strikePerMWh(own.bid,own.mw,own.lf),own:true,index:-1});ps.sort((a,b)=>a.strike-b.strike);let spent=0,awarded=0, marginal=null, won=false,accepted=[];
+for(const p of ps){if(rule==='budget'){if(spent+p.bid>budget){break}else{spent+=p.bid;accepted.push(p);awarded+=p.mw;marginal=p.strike;if(p.own)won=true}}else{if(p.strike>cap)break;accepted.push(p);awarded+=p.mw;marginal=p.strike;if(p.own)won=true}}
+return {won,awarded,spent,marginal,accepted};}
+function simulateBid(bid,comps,ownBase,rule,budget,cap,runs,modifier=null){let won=0,sumMW=0,sumSpent=0,margs=[];for(let k=0;k<runs;k++){const cs=modifier===null?comps:comps.map((c,i)=>i===modifier?({...c,p25:c.p25*.9,p50:c.p50*.9,p75:c.p75*.9}):c);const a=auctionOnce(cs,{...ownBase,bid},budget,cap,rule);if(a.won)won++;sumMW+=a.awarded;sumSpent+=a.spent;if(a.marginal!=null)margs.push(a.marginal)}return {p:won/runs,avgMW:sumMW/runs,avgSpent:sumSpent/runs,margs};}
+function q(a,p){if(!a.length)return null;const s=a.slice().sort((x,y)=>x-y);return s[Math.floor((s.length-1)*p)]}
+function money(x){return (x<0?'−':'')+'£'+Math.abs(x).toFixed(0)+'m'}
+function pct(x){return (x*100).toFixed(1)+'%'}
+function chart(id,x,y,sel,yLabel,isPct){const c=document.getElementById(id),ctx=c.getContext('2d'),W=c.width,H=c.height,m={l:52,r:18,t:18,b:38};ctx.clearRect(0,0,W,H);const ymin=Math.min(...y,0),ymax=Math.max(...y);const yr=ymax===ymin?1:ymax-ymin;const X=v=>m.l+(v-x[0])/(x.at(-1)-x[0])*(W-m.l-m.r),Y=v=>H-m.b-(v-ymin)/yr*(H-m.t-m.b);ctx.strokeStyle='#c5cbd2';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();ctx.strokeStyle='#1d5d89';ctx.lineWidth=3;ctx.beginPath();x.forEach((v,i)=>i?ctx.lineTo(X(v),Y(y[i])):ctx.moveTo(X(v),Y(y[i])));ctx.stroke();let j=x.reduce((a,v,i)=>Math.abs(v-sel)<Math.abs(x[a]-sel)?i:a,0);ctx.fillStyle='#b23b3b';ctx.beginPath();ctx.arc(X(x[j]),Y(y[j]),5,0,Math.PI*2);ctx.fill();ctx.fillStyle='#344054';ctx.font='12px system-ui';ctx.fillText(money(x[0]),m.l,H-12);ctx.fillText(money(x.at(-1)),Math.max(m.l,W-m.r-65),H-12);ctx.fillText(isPct?pct(ymax):money(ymax),5,m.t+5);ctx.fillText(isPct?pct(ymin):money(ymin),5,H-m.b);ctx.fillText(yLabel,W/2-50,14)}
+function run(){const comps=inputs();const rule=document.getElementById('rule').value,budget=+document.getElementById('budget').value,cap=+document.getElementById('cap').value,ownmw=+document.getElementById('ownmw').value,ownlf=+document.getElementById('ownlf').value/100,floor=+document.getElementById('floor').value,shade=+document.getElementById('shade').value,runs=Math.max(2000,+document.getElementById('runs').value),selected=floor*(1+shade/100);const own={mw:ownmw,lf:ownlf,bid:selected};let lo=Math.max(1,floor*.80),hi=floor*1.35,n=35,x=[],p=[],ev=[];for(let j=0;j<n;j++){const b=lo+(hi-lo)*j/(n-1),s=simulateBid(b,comps,own,rule,budget,cap,runs);x.push(b);p.push(s.p);ev.push(s.p*(b-floor))}const s=simulateBid(selected,comps,own,rule,budget,cap,runs);const val=selected-floor;document.getElementById('kb').textContent=money(selected);document.getElementById('kb2').textContent=strikePerMWh(selected,ownmw,ownlf).toFixed(1)+' £/MWh implied';document.getElementById('kp').textContent=pct(s.p);document.getElementById('kv').textContent=(val>=0?'+':'−')+'£'+Math.abs(val).toFixed(0)+'m';document.getElementById('ke').textContent=(s.p*val>=0?'+':'−')+'£'+Math.abs(s.p*val).toFixed(1)+'m';document.getElementById('kamw').textContent=(s.avgMW/1000).toFixed(2)+' GW';document.getElementById('kamw2').textContent=rule==='budget'?'avg auction award':'avg under price cap';let step=Math.max(5,Math.round(floor*.05/5)*5),bLo=selected-step,bHi=selected+step;const nearLo=simulateBid(bLo,comps,own,rule,budget,cap,Math.min(runs,8000)).p,nearHi=simulateBid(bHi,comps,own,rule,budget,cap,Math.min(runs,8000)).p;document.getElementById('trade').innerHTML=`<b>Bid trade-off:</b> £${step}m lower gives about <b>${pct(nearLo)}</b> award probability; £${step}m higher gives about <b>${pct(nearHi)}</b>. Your selected bid implies <b>${strikePerMWh(selected,ownmw,ownlf).toFixed(1)} £/MWh</b>.`;
+chart('prob',x,p,selected,'P(award)',true);chart('ev',x,ev,selected,'Expected value',false);
+const thresholds=[];const awarded=[];const marginal=[];for(let k=0;k<runs;k++){const a=auctionOnce(comps,own,budget,cap,rule);thresholds.push(rule==='budget'?(a.marginal||Infinity):(a.marginal||cap));awarded.push(a.awarded);if(a.marginal!=null)marginal.push(a.marginal)}const qs=[[.1,'P10'],[.25,'P25'],[.5,'P50'],[.75,'P75'],[.9,'P90']];document.getElementById('thresholds').innerHTML=qs.map(([z,l])=>`<div class="kpi"><div class="muted">${l}</div><div class="big">${q(thresholds,z)===Infinity?'—':q(thresholds,z).toFixed(1)+' £/MWh'}</div></div>`).join('');document.getElementById('auctionOutcome').innerHTML=`<div class="barrow"><span>Expected capacity awarded</span><div class="bar"><span style="width:${Math.min(100,s.avgMW/Math.max(1,ownmw*3)*100)}%"></span></div><b>${(s.avgMW/1000).toFixed(2)} GW</b></div><div class="barrow"><span>Expected spend</span><div class="bar"><span style="width:${rule==='budget'?Math.min(100,s.avgSpent/budget*100):0}%"></span></div><b>${rule==='budget'?money(s.avgSpent):'n/a'}</b></div><div style="margin-top:12px"><span class="status">${rule==='budget'?(s.avgSpent>=budget*.99?'Budget usually binds':'Budget often not fully used'):'Price cap is the binding rule'}</span> <span class="status">Median marginal winning bid: ${q(marginal,.5)?.toFixed(1)||'—'} £/MWh</span></div>`;
+let threatRows=[];const base=s;for(let i=0;i<comps.length;i++){const t=simulateBid(selected,comps,own,rule,budget,cap,Math.min(runs,5000),i);const dp=t.p-base.p,dev=t.p*val-base.p*val;threatRows.push({i,dp,dev});}threatRows.sort((a,b)=>a.dp-b.dp);document.getElementById('threats').innerHTML=threatRows.map(t=>{const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);return `<div class="barrow"><span><b>${label}</b><br><span class="muted">P50 ${c.p50} £m</span></span><div class="bar"><span style="width:${Math.min(100,Math.abs(t.dp)*500)}%;background:${t.dp<0?'#b23b3b':'#1d5d89'}"></span></div><b>${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp<br><span class="muted">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}m EV</span></b></div>`}).join('');
+}
+run();
+</script>
+</body>
+</html>
