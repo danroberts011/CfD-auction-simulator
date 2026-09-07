@@ -59,13 +59,17 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 <div class="controls">
 <div class="field"><label>Capacity (MW)</label><input id="ownmw" type="number" value="500" step="10"></div>
 <div class="field"><label>Load factor (%)</label><input id="ownlf" type="number" value="60" step="1"></div>
-<div class="field"><label>Minimum acceptable bid (£m)</label><input id="floor" type="number" value="500" step="5"></div>
-<div class="field"><label>Implied minimum strike price (£/MWh)</label><div id="ownStrike" class="calc">—</div></div>
+</div>
+<div class="muted" style="margin:10px 0 8px">Your minimum acceptable strike price under different project-cost outcomes. P25 is optimistic, P50 central and P75 pessimistic.</div>
+<div class="controls">
+<div class="field"><label>Optimistic (P25) minimum acceptable bid (£m)</label><input id="floor25" type="number" value="450" step="5"><div id="ownStrike25" class="calc">—</div></div>
+<div class="field"><label>Central (P50) minimum acceptable bid (£m)</label><input id="floor50" type="number" value="500" step="5"><div id="ownStrike50" class="calc">—</div></div>
+<div class="field"><label>Pessimistic (P75) minimum acceptable bid (£m)</label><input id="floor75" type="number" value="550" step="5"><div id="ownStrike75" class="calc">—</div></div>
 <div class="field"><label>Bid adjustment (%)</label><input id="shade" type="number" value="10" step="1"></div>
 </div>
 <div class="field"><label>Simulation runs</label><input id="runs" type="number" value="20000" step="5000"></div>
 <button onclick="run()">Run simulation</button>
-<div class="muted" style="margin-top:8px">Competitor bids use a split-normal approximation calibrated to P25/P50/P75. Government budget or willingness to pay is also uncertain and is drawn once per simulated auction. Your bid is fixed. Projects are ranked by implied £/MWh. In budget mode, accepted project bids count against the sampled £m budget.</div>
+<div class="muted" style="margin-top:8px">Competitor bids use a split-normal approximation calibrated to P25/P50/P75. Government budget or willingness to pay is also uncertain and is drawn once per simulated auction. Your bid is fixed. Your own minimum acceptable bid is uncertain and is drawn from its P25/P50/P75 distribution when you win. Projects are ranked by implied £/MWh. In budget mode, accepted project bids count against the sampled £m budget.</div>
 </section>
 
 <section class="card wide">
@@ -73,8 +77,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 <div class="kpis">
 <div class="kpi"><div class="muted">Your bid</div><div class="big" id="kb">—</div><div class="sub" id="kb2">—</div></div>
 <div class="kpi"><div class="muted">Probability of award</div><div class="big" id="kp">—</div><div class="sub">Monte Carlo estimate</div></div>
-<div class="kpi"><div class="muted">Value if awarded</div><div class="big" id="kv">—</div><div class="sub">Bid minus floor</div></div>
-<div class="kpi"><div class="muted">Expected value</div><div class="big" id="ke">—</div><div class="sub">P(award) × value</div></div>
+<div class="kpi"><div class="muted">Value if awarded</div><div class="big" id="kv">—</div><div class="sub">Bid minus P50 minimum</div></div>
+<div class="kpi"><div class="muted">Expected value</div><div class="big" id="ke">—</div><div class="sub">Simulation of own cost uncertainty</div></div>
 <div class="kpi"><div class="muted">Expected MW awarded</div><div class="big" id="kamw">—</div><div class="sub" id="kamw2">—</div></div>
 </div>
 <p id="trade" style="margin-bottom:0"></p>
@@ -127,12 +131,15 @@ function updateCalcs(){
     if(cell && a[0]>0 && a[1]>0 && a[3]>=0){ cell.textContent=strikePerMWh(a[3],a[0],a[1]/100).toFixed(1); }
     else if(cell) cell.textContent='—';
   });
-  const mw=+document.getElementById('ownmw').value, lf=+document.getElementById('ownlf').value/100, floor=+document.getElementById('floor').value;
-  const el=document.getElementById('ownStrike');
-  el.textContent=(mw>0&&lf>0&&floor>=0)?strikePerMWh(floor,mw,lf).toFixed(1)+' £/MWh':'—';
+  const mw=+document.getElementById('ownmw').value, lf=+document.getElementById('ownlf').value/100;
+  const f25=+document.getElementById('floor25').value, f50=+document.getElementById('floor50').value, f75=+document.getElementById('floor75').value;
+  [['ownStrike25',f25],['ownStrike50',f50],['ownStrike75',f75]].forEach(([id,f])=>{
+    const el=document.getElementById(id);
+    el.textContent=(mw>0&&lf>0&&f>=0)?'Implied minimum strike: '+strikePerMWh(f,mw,lf).toFixed(1)+' £/MWh':'—';
+  });
 }
 defaults.forEach(addRow);
-['ownmw','ownlf','floor'].forEach(id=>document.getElementById(id).addEventListener('input',updateCalcs));
+['ownmw','ownlf','floor25','floor50','floor75'].forEach(id=>document.getElementById(id).addEventListener('input',updateCalcs));
 updateCalcs();
 function toggleRule(){const r=document.getElementById('rule').value;document.getElementById('budgetWrap').style.display=r==='budget'?'block':'none';document.getElementById('capWrap').style.display=r==='cap'?'block':'none'}
 function randn(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
@@ -166,16 +173,20 @@ function auctionOnce(comps,own,gov,rule){
   return {won,awarded,spent,marginal,accepted,govValue:rule==='budget'?budget:cap};
 }
 function simulateBid(bid,comps,ownBase,rule,gov,runs,modifier=null){
-  let won=0,sumMW=0,sumSpent=0,margs=[],govVals=[];
+  let won=0,sumMW=0,sumSpent=0,sumValue=0,margs=[],govVals=[];
   const cs=modifier===null?comps:comps.map((c,i)=>i===modifier?({...c,p25:c.p25*.9,p50:c.p50*.9,p75:c.p75*.9}):c);
   for(let k=0;k<runs;k++){
     const a=auctionOnce(cs,{...ownBase,bid},gov,rule);
-    if(a.won) won++;
+    if(a.won){
+      won++;
+      const realisedFloor=draw(ownBase.f25,ownBase.f50,ownBase.f75);
+      sumValue += bid - realisedFloor;
+    }
     sumMW+=a.awarded; sumSpent+=a.spent;
     if(a.marginal!=null)margs.push(a.marginal);
     govVals.push(a.govValue);
   }
-  return {p:won/runs,avgMW:sumMW/runs,avgSpent:sumSpent/runs,margs,govVals};
+  return {p:won/runs,avgMW:sumMW/runs,avgSpent:sumSpent/runs,margs,govVals,expectedValue:sumValue/runs};
 }
 function q(a,p){if(!a.length)return null;const s=a.slice().sort((x,y)=>x-y);return s[Math.floor((s.length-1)*p)]}
 function money(x){return (x<0?'−':'')+'£'+Math.abs(x).toFixed(0)+'m'}
@@ -193,26 +204,28 @@ function run(){
     c75:+document.getElementById('cap75').value
   };
   const ownmw=+document.getElementById('ownmw').value, ownlf=+document.getElementById('ownlf').value/100;
-  const floor=+document.getElementById('floor').value, shade=+document.getElementById('shade').value;
-  const runs=Math.max(2000,+document.getElementById('runs').value), selected=floor*(1+shade/100);
-  const own={mw:ownmw,lf:ownlf,bid:selected};
-  let lo=Math.max(1,floor*.80),hi=floor*1.35,n=35,x=[],p=[],ev=[];
+  const f25=+document.getElementById('floor25').value, f50=+document.getElementById('floor50').value, f75=+document.getElementById('floor75').value;
+  const shade=+document.getElementById('shade').value;
+  const runs=Math.max(2000,+document.getElementById('runs').value), selected=f50*(1+shade/100);
+  const own={mw:ownmw,lf:ownlf,f25:f25,f50:f50,f75:f75,bid:selected};
+  const floor=f50;
+  let lo=Math.max(1,f50*.80),hi=f50*1.35,n=35,x=[],p=[],ev=[];
   for(let j=0;j<n;j++){
     const b=lo+(hi-lo)*j/(n-1),s=simulateBid(b,comps,own,rule,gov,runs);
-    x.push(b);p.push(s.p);ev.push(s.p*(b-floor));
+    x.push(b);p.push(s.p);ev.push(s.expectedValue);
   }
   const s=simulateBid(selected,comps,own,rule,gov,runs);
-  const val=selected-floor;
+  const centralVal=selected-f50;
   document.getElementById('kb').textContent=money(selected);
   document.getElementById('kb2').textContent=strikePerMWh(selected,ownmw,ownlf).toFixed(1)+' £/MWh implied';
   document.getElementById('kp').textContent=pct(s.p);
-  document.getElementById('kv').textContent=(val>=0?'+':'−')+'£'+Math.abs(val).toFixed(0)+'m';
-  document.getElementById('ke').textContent=(s.p*val>=0?'+':'−')+'£'+Math.abs(s.p*val).toFixed(1)+'m';
+  document.getElementById('kv').textContent=(centralVal>=0?'+':'−')+'£'+Math.abs(centralVal).toFixed(0)+'m';
+  document.getElementById('ke').textContent=(s.expectedValue>=0?'+':'−')+'£'+Math.abs(s.expectedValue).toFixed(1)+'m';
   document.getElementById('kamw').textContent=(s.avgMW/1000).toFixed(2)+' GW';
   document.getElementById('kamw2').textContent=rule==='budget'?'avg auction award':'avg under WTP threshold';
   let step=Math.max(5,Math.round(floor*.05/5)*5),bLo=selected-step,bHi=selected+step;
   const nearLo=simulateBid(bLo,comps,own,rule,gov,Math.min(runs,8000)).p, nearHi=simulateBid(bHi,comps,own,rule,gov,Math.min(runs,8000)).p;
-  document.getElementById('trade').innerHTML=`<b>Bid trade-off:</b> £${step}m lower gives about <b>${pct(nearLo)}</b> award probability; £${step}m higher gives about <b>${pct(nearHi)}</b>. Your selected bid implies <b>${strikePerMWh(selected,ownmw,ownlf).toFixed(1)} £/MWh</b>.`;
+  document.getElementById('trade').innerHTML=`<b>Bid trade-off:</b> £${step}m lower gives about <b>${pct(nearLo)}</b> award probability; £${step}m higher gives about <b>${pct(nearHi)}</b>. Your selected bid implies <b>${strikePerMWh(selected,ownmw,ownlf).toFixed(1)} £/MWh</b>. Own economics are uncertain: central minimum is <b>${strikePerMWh(f50,ownmw,ownlf).toFixed(1)} £/MWh</b>.`;
   chart('prob',x,p,selected,'P(award)',true); chart('ev',x,ev,selected,'Expected value',false);
 
   const thresholds=[]; const awarded=[]; const marginal=[];
@@ -241,13 +254,13 @@ function run(){
   let threatRows=[]; const base=s;
   for(let i=0;i<comps.length;i++){
     const t=simulateBid(selected,comps,own,rule,gov,Math.min(runs,5000),i);
-    const dp=t.p-base.p,dev=t.p*val-base.p*val;
+    const dp=t.p-base.p,dev=t.expectedValue-base.expectedValue;
     threatRows.push({i,dp,dev});
   }
   threatRows.sort((a,b)=>a.dp-b.dp);
   document.getElementById('threatTable').innerHTML=threatRows.map(t=>{
     const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);
-    return `<tr><td><b>${label}</b></td><td>£${c.p50.toFixed(0)}m</td><td>${pct(base.p)}</td><td class="${t.dp<0?'neg':'pos'}">${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp</td><td>£${(base.p*val).toFixed(1)}m</td><td class="${t.dev<0?'neg':'pos'}">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}m</td></tr>`;
+    return `<tr><td><b>${label}</b></td><td>£${c.p50.toFixed(0)}m</td><td>${pct(base.p)}</td><td class="${t.dp<0?'neg':'pos'}">${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp</td><td>${base.expectedValue>=0?'+':'−'}£${Math.abs(base.expectedValue).toFixed(1)}m</td><td class="${t.dev<0?'neg':'pos'}">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}m</td></tr>`;
   }).join('');
   document.getElementById('threats').innerHTML=threatRows.map(t=>{
     const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);
