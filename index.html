@@ -17,6 +17,10 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 .status{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--light);font-size:12px;color:var(--muted)}
 @media(max-width:900px){.grid{grid-template-columns:1fr}.chartgrid{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}.wide{grid-column:auto}}
 </style>
+
+<style>
+.tablewrap{overflow-x:auto}.sensTable{width:100%;border-collapse:collapse;font-size:14px}.sensTable th,.sensTable td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}.sensTable th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#667085;background:#f8fafc}.sensTable .neg{color:#b23b3b;font-weight:650}.sensTable .pos{color:#1d5d89;font-weight:650}
+</style>
 </head>
 <body>
 <header><h1>CfD Auction Simulator</h1><div>Prototype: competitive bid strategy under uncertainty</div></header>
@@ -97,8 +101,11 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 
 <section class="card wide">
 <h2>Which competitor matters most?</h2>
-<div class="muted">Standard sensitivity: reduce one competitor's entire bid distribution by 10% and measure the change in your probability of winning and expected value.</div>
-<div id="threats" style="margin-top:10px"></div>
+<div class="muted">Standard sensitivity: assume one competitor bids 10% lower than its central case and measure the change in your probability of winning and expected value.</div>
+<div class="tablewrap" style="margin-top:12px">
+<table class="sensTable"><thead><tr><th>Competitor</th><th>P50 bid</th><th>Our P(win)</th><th>Change</th><th>Our expected value</th><th>Change</th></tr></thead><tbody id="threatTable"></tbody></table>
+</div>
+<div id="threats" style="margin-top:14px"></div>
 </section>
 </div>
 </main>
@@ -238,9 +245,13 @@ function run(){
     threatRows.push({i,dp,dev});
   }
   threatRows.sort((a,b)=>a.dp-b.dp);
+  document.getElementById('threatTable').innerHTML=threatRows.map(t=>{
+    const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);
+    return `<tr><td><b>${label}</b></td><td>£${c.p50.toFixed(0)}m</td><td>${pct(base.p)}</td><td class="${t.dp<0?'neg':'pos'}">${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp</td><td>£${(base.p*val).toFixed(1)}m</td><td class="${t.dev<0?'neg':'pos'}">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}m</td></tr>`;
+  }).join('');
   document.getElementById('threats').innerHTML=threatRows.map(t=>{
     const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);
-    return `<div class="barrow"><span><b>${label}</b><br><span class="muted">P50 ${c.p50} £m</span></span><div class="bar"><span style="width:${Math.min(100,Math.abs(t.dp)*500)}%;background:${t.dp<0?'#b23b3b':'#1d5d89'}"></span></div><b>${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp<br><span class="muted">${dev>=0?'+':'−'}£${Math.abs(dev).toFixed(1)}m EV</span></b></div>`;
+    return `<div class="barrow"><span><b>${label}</b><br><span class="muted">P50 £${c.p50.toFixed(0)}m</span></span><div class="bar"><span style="width:${Math.min(100,Math.abs(t.dp)*500)}%;background:${t.dp<0?'#b23b3b':'#1d5d89'}"></span></div><b>${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp<br><span class="muted">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}m EV</span></b></div>`;
   }).join('');
 }
 </script>
