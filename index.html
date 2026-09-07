@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CfD Auction Simulator v2.2</title>
+<title>CfD Auction Simulator v2.4</title>
 <style>
 :root{--ink:#18202a;--muted:#667085;--navy:#132238;--blue:#1d5d89;--light:#eef2f6;--line:#dfe4ea;--bg:#f5f6f8;--red:#b23b3b}
 *{box-sizing:border-box} body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--ink)}
@@ -69,7 +69,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 </div>
 <div class="field"><label>Simulation runs</label><input id="runs" type="number" value="20000" step="5000"></div>
 <button onclick="run()">Run simulation</button>
-<div class="muted" style="margin-top:8px">Competitor bids use a split-normal approximation calibrated to P25/P50/P75. Government budget or willingness to pay is also uncertain and is drawn once per simulated auction. Your bid is fixed. Your own minimum acceptable bid is uncertain and is drawn from its P25/P50/P75 distribution when you win. Projects are ranked by implied £/MWh. In budget mode, accepted project bids count against the sampled £m budget.</div>
+<div class="muted" style="margin-top:8px">Competitor bids use a piecewise-linear quantile distribution defined by P25/P50/P75, with the adjacent slope extrapolated into the tails and a £0 floor. Government budget or willingness to pay is also uncertain and is drawn once per simulated auction using the same distribution rule. Your bid is fixed. Your own minimum acceptable bid is uncertain and is drawn from its P25/P50/P75 distribution when you win. Projects are ranked by implied £/MWh. In budget mode, accepted project bids count against the sampled £m budget.</div>
 </section>
 
 <section class="card wide">
@@ -115,11 +115,11 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 </main>
 <script>
 const defaults=[
-  [500,60,410,450,490],
-  [400,60,350,390,430],
-  [600,60,510,570,630],
-  [300,60,275,310,345],
-  [700,60,630,700,770]
+  [1000,60,410,450,490],
+  [800,60,350,390,430],
+  [1200,60,510,570,630],
+  [600,60,275,310,345],
+  [1400,60,630,700,770]
 ];
 function addRow(v){const b=document.querySelector('#ct tbody'),i=b.rows.length;const x=v||[400,60,350,400,450];const r=b.insertRow();r.dataset.idx=i;r.innerHTML=`<td>Competitor ${String.fromCharCode(65+i)}</td>${x.map(z=>`<td><input class="cell" type="number" value="${z}" step="1"></td>`).join('')}<td class="calc strikeCalc">—</td><td><button class="danger smallbtn" onclick="this.closest('tr').remove();renumber();updateCalcs()">remove</button></td>`;r.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',updateCalcs));updateCalcs()}
 function removeRow(){const b=document.querySelector('#ct tbody');if(b.rows.length>1)b.deleteRow(-1);renumber()}
@@ -142,8 +142,21 @@ defaults.forEach(addRow);
 ['ownmw','ownlf','floor25','floor50','floor75'].forEach(id=>document.getElementById(id).addEventListener('input',updateCalcs));
 updateCalcs();
 function toggleRule(){const r=document.getElementById('rule').value;document.getElementById('budgetWrap').style.display=r==='budget'?'block':'none';document.getElementById('capWrap').style.display=r==='cap'?'block':'none'}
-function randn(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
-function draw(p25,p50,p75){const z=.67448975,g=randn();return Math.max(0,p50+g*(g<0?(p50-p25)/z:(p75-p50)/z))}
+function draw(p25,p50,p75){
+  // Piecewise-linear quantile distribution: P25/P50/P75 are exact, with adjacent slopes extrapolated into the tails and a £0 floor.
+  const u=Math.random();
+  let x;
+  if(u<0.25){
+    x=p25+(u-0.25)*(p50-p25)/0.25;
+  } else if(u<0.5){
+    x=p25+(u-0.25)*(p50-p25)/0.25;
+  } else if(u<0.75){
+    x=p50+(u-0.5)*(p75-p50)/0.25;
+  } else {
+    x=p75+(u-0.75)*(p75-p50)/0.25;
+  }
+  return Math.max(0,x);
+}
 function inputs(){return [...document.querySelectorAll('#ct tbody tr')].map(r=>{const a=[...r.querySelectorAll('input')].map(x=>+x.value);return {mw:a[0],lf:a[1]/100,p25:a[2],p50:a[3],p75:a[4]}}).filter(c=>c.mw>0&&c.lf>0&&c.p50>=0)}
 function strikePerMWh(bid,mw,lf){return bid/(mw*8760*lf)*1e6}
 function drawGov(rule,gov){
