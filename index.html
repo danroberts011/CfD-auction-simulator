@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CfD Auction Simulator v3</title>
+<title>CfD Auction Simulator v3.1</title>
 <style>
 :root{--ink:#18202a;--muted:#667085;--navy:#132238;--blue:#1d5d89;--light:#eef2f6;--line:#dfe4ea;--bg:#f5f6f8;--red:#b23b3b}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--ink)}
@@ -19,7 +19,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 </style>
 </head>
 <body>
-<header><div class="version">VERSION 3.0</div><h1>CfD Auction Simulator</h1><div>Prototype: competitive bid strategy under uncertainty</div></header>
+<header><div class="version">VERSION 3.1</div><h1>CfD Auction Simulator</h1><div>Prototype: competitive bid strategy under uncertainty</div></header>
 <main><div class="grid">
 <section class="card wide">
 <h2>1. Competitive field</h2>
@@ -64,12 +64,23 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 </section>
 
 <section class="card wide">
+<h2>4. If we lose this auction</h2>
+<div class="muted" style="margin-bottom:8px">Describe how you expect the next auction opportunity to compare with this one. The simulator applies these adjustments to the simulated current-auction threshold, preserving the uncertainty in each auction.</div>
+<div class="controls">
+<div class="field"><label>Optimistic future outcome: change in clearing price (%)</label><input id="future25" type="number" value="0" step="1"></div>
+<div class="field"><label>Central future outcome: change in clearing price (%)</label><input id="future50" type="number" value="5" step="1"></div>
+<div class="field"><label>Pessimistic future outcome: change in clearing price (%)</label><input id="future75" type="number" value="10" step="1"></div>
+</div>
+<div class="muted">For budget mode, the current threshold is the marginal bid in the counterfactual auction without your project. For willingness-to-pay mode, it is Government's sampled willingness to pay. A positive adjustment means you expect a looser future auction with higher clearing prices.</div>
+</section>
+
+<section class="card wide">
 <h2>Results at your selected bid</h2>
 <div class="kpis">
 <div class="kpi"><div class="muted">Your bid</div><div class="big" id="kb">—</div><div class="sub" id="kb2">—</div></div>
 <div class="kpi"><div class="muted">Probability of award</div><div class="big" id="kp">—</div><div class="sub">Monte Carlo estimate</div></div>
 <div class="kpi"><div class="muted">Margin if awarded</div><div class="big" id="kv">—</div><div class="sub">Bid minus central minimum</div></div>
-<div class="kpi"><div class="muted">Expected value</div><div class="big" id="ke">—</div><div class="sub">Expected bid margin, allowing for own uncertainty</div></div>
+<div class="kpi"><div class="muted">Expected value</div><div class="big" id="ke">—</div><div class="sub">Expected project value, including the value of waiting if we lose</div></div>
 <div class="kpi"><div class="muted">Expected MW awarded</div><div class="big" id="kamw">—</div><div class="sub" id="kamw2">—</div></div>
 </div><p id="trade" style="margin-bottom:0"></p>
 </section>
@@ -79,7 +90,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;borde
 <section class="card"><h2>Competitive threshold</h2><div class="muted" id="thresholdNote">This section shows the relevant Government/auction threshold distribution for the selected mode.</div><div class="kpis" id="thresholds" style="grid-template-columns:repeat(5,1fr);margin-top:10px"></div></section>
 <section class="card"><h2>Auction outcome</h2><div id="auctionOutcome" class="muted">Run a simulation to see the distribution of total awarded capacity and the marginal winning bid.</div></section>
 
-<section class="card wide"><h2 id="sensitivityTitle">Which competitor matters most?</h2><div class="muted" id="sensitivityNote">Standard sensitivity: assume one competitor bids 10% lower than its central case, holding the simulated Government and all other competitor outcomes constant, and measure the change in your probability of winning and expected value.</div><div class="tablewrap" style="margin-top:12px"><table class="sensTable"><thead><tr><th>Competitor</th><th>P50 minimum strike</th><th>Our P(win)</th><th>Change</th><th>Our expected value</th><th>Change</th></tr></thead><tbody id="threatTable"></tbody></table></div><div id="threats" style="margin-top:14px"></div></section>
+<section class="card wide"><h2 id="sensitivityTitle">Which competitor matters most?</h2><div class="muted" id="sensitivityNote">Standard sensitivity: assume one competitor bids 10% lower than its central case, holding the simulated Government and all other competitor outcomes constant, and measure the change in your probability of winning and expected project value, including the future-auction alternative if you lose.</div><div class="tablewrap" style="margin-top:12px"><table class="sensTable"><thead><tr><th>Competitor</th><th>P50 minimum strike</th><th>Our P(win)</th><th>Change</th><th>Our expected value</th><th>Change</th></tr></thead><tbody id="threatTable"></tbody></table></div><div id="threats" style="margin-top:14px"></div></section>
 </div></main>
 <script>
 const defaults=[
@@ -98,21 +109,40 @@ function updatePreview(){const f50=+document.getElementById('floor50').value||0,
 updatePreview();
 function toggleRule(){const r=document.getElementById('rule').value;document.getElementById('budgetWrap').style.display=r==='budget'?'block':'none';document.getElementById('capWrap').style.display=r==='cap'?'block':'none';}
 function quantileValue(p25,p50,p75,u){let x;if(u<0.25)x=p25+(u-0.25)*(p50-p25)/0.25;else if(u<0.5)x=p25+(u-0.25)*(p50-p25)/0.25;else if(u<0.75)x=p50+(u-0.5)*(p75-p50)/0.25;else x=p75+(u-0.75)*(p75-p50)/0.25;return Math.max(0,x)}
+function quantileSigned(p25,p50,p75,u){if(u<0.25)return p25+(u-0.25)*(p50-p25)/0.25;if(u<0.5)return p25+(u-0.25)*(p50-p25)/0.25;if(u<0.75)return p50+(u-0.5)*(p75-p50)/0.25;return p75+(u-0.75)*(p75-p50)/0.25}
 function inputs(){return [...document.querySelectorAll('#ct tbody tr')].map(r=>{const a=[...r.querySelectorAll('input')].map(x=>+x.value);return {mw:a[0],p25:a[1],p50:a[2],p75:a[3]}}).filter(c=>c.mw>0&&c.p25>=0&&c.p50>=0&&c.p75>=0)}
-function makeScenarios(runs,n){return{compU:Array.from({length:runs},()=>Array.from({length:n},Math.random)),govU:Array.from({length:runs},Math.random),ownU:Array.from({length:runs},Math.random)}}
+function makeScenarios(runs,n){return{compU:Array.from({length:runs},()=>Array.from({length:n},Math.random)),govU:Array.from({length:runs},Math.random),ownU:Array.from({length:runs},Math.random),futureU:Array.from({length:runs},Math.random)}}
 function govInputs(){return{b25:+document.getElementById('budget25').value,b50:+document.getElementById('budget50').value,b75:+document.getElementById('budget75').value,c25:+document.getElementById('cap25').value,c50:+document.getElementById('cap50').value,c75:+document.getElementById('cap75').value,paylf:+document.getElementById('paylf').value/100}}
+function futureInputs(){return{p25:+document.getElementById('future25').value||0,p50:+document.getElementById('future50').value||0,p75:+document.getElementById('future75').value||0}}
 function strikeBidValue(p25,p50,p75,u){return quantileValue(p25,p50,p75,u)}
-function auctionOnce(comps,own,gov,rule,sc,idx,modifier=null){
+function auctionOnce(comps,own,gov,rule,sc,idx,modifier=null,includeOwn=true){
   const budget=rule==='budget'?quantileValue(gov.b25,gov.b50,gov.b75,sc.govU[idx]):Infinity;
   const cap=rule==='cap'?quantileValue(gov.c25,gov.c50,gov.c75,sc.govU[idx]):Infinity;
   let ps=comps.map((c,i)=>{const cc=modifier===i?{...c,p25:c.p25*.9,p50:c.p50*.9,p75:c.p75*.9}:c;const bid=strikeBidValue(cc.p25,cc.p50,cc.p75,sc.compU[idx][i]);const annualMWh=c.mw*8760*gov.paylf;return{name:'Competitor '+String.fromCharCode(65+i),mw:c.mw,bid,annualMWh,own:false,index:i}});
-  ps.push({name:'Us',mw:own.mw,bid:own.bid,annualMWh:own.mw*8760*gov.paylf,own:true,index:-1});
+  if(includeOwn) ps.push({name:'Us',mw:own.mw,bid:own.bid,annualMWh:own.mw*8760*gov.paylf,own:true,index:-1});
   ps.sort((a,b)=>a.bid-b.bid);
   let spent=0,awarded=0,marginal=null,won=false;
   for(const p of ps){if(rule==='budget'){const cost=p.bid*p.annualMWh/1e6;if(spent+cost>budget)break;spent+=cost;awarded+=p.mw;marginal=p.bid;if(p.own)won=true}else{if(p.bid>cap)break;awarded+=p.mw;marginal=p.bid;if(p.own)won=true}}
-  return{won,awarded,spent,marginal,govValue:rule==='budget'?budget:cap};
+  const currentThreshold=rule==='cap'?cap:(marginal==null?(ps.length?ps[0].bid:0):marginal);
+  return{won,awarded,spent,marginal,govValue:rule==='budget'?budget:cap,threshold:currentThreshold};
 }
-function simulateBid(bid,comps,own,gov,rule,runs,scenario,modifier=null){let won=0,sumMW=0,sumSpent=0,sumMargin=0,margs=[],govVals=[];for(let k=0;k<runs;k++){const a=auctionOnce(comps,{...own,bid},gov,rule,scenario,k,modifier);if(a.won){won++;const floor=quantileValue(own.f25,own.f50,own.f75,scenario.ownU[k]);sumMargin += bid-floor;}sumMW+=a.awarded;sumSpent+=a.spent;if(a.marginal!=null)margs.push(a.marginal);govVals.push(a.govValue)}return{p:won/runs,avgMW:sumMW/runs,avgSpent:sumSpent/runs,margs,govVals,expectedValue:sumMargin/runs}}
+function simulateBid(bid,comps,own,gov,rule,runs,scenario,modifier=null){
+  let won=0,sumMW=0,sumSpent=0,sumValue=0,sumWinValue=0,sumLoseValue=0,margs=[],govVals=[],futureVals=[];
+  const fut=futureInputs();
+  for(let k=0;k<runs;k++){
+    const a=auctionOnce(comps,{...own,bid},gov,rule,scenario,k,modifier,true);
+    const cf=auctionOnce(comps,{...own,bid},gov,rule,scenario,k,null,false);
+    const floor=quantileValue(own.f25,own.f50,own.f75,scenario.ownU[k]);
+    const adj=quantileSigned(fut.p25,fut.p50,fut.p75,scenario.futureU[k])/100;
+    const futureThreshold=Math.max(0,cf.threshold*(1+adj));
+    const winValue=bid-floor;
+    const loseValue=futureThreshold-floor;
+    const value=a.won?winValue:loseValue;
+    if(a.won){won++;sumWinValue+=winValue}else{sumLoseValue+=loseValue}
+    sumValue+=value;sumMW+=a.awarded;sumSpent+=a.spent;if(a.marginal!=null)margs.push(a.marginal);govVals.push(a.govValue);futureVals.push(futureThreshold)
+  }
+  return{p:won/runs,avgMW:sumMW/runs,avgSpent:sumSpent/runs,margs,govVals,expectedValue:sumValue/runs,expectedWinValue:sumWinValue/runs,expectedLoseValue:sumLoseValue/runs,futureVals}
+}
 function q(a,p){if(!a.length)return null;const s=a.slice().sort((x,y)=>x-y);return s[Math.floor((s.length-1)*p)]}
 function pct(x){return(x*100).toFixed(1)+'%'}
 function money(x){return(x<0?'−':'')+'£'+Math.abs(x).toFixed(0)+'m'}
@@ -124,11 +154,14 @@ function run(){
   for(let j=0;j<n;j++){const b=lo+(hi-lo)*j/(n-1),s=simulateBid(b,comps,own,gov,rule,runs,scenarios);x.push(b);p.push(s.p);ev.push(s.expectedValue)}
   const s=simulateBid(selected,comps,own,gov,rule,runs,scenarios),centralMargin=selected-f50;
   document.getElementById('kb').textContent='£'+selected.toFixed(1)+'/MWh';document.getElementById('kb2').textContent='vs central minimum £'+f50.toFixed(1)+'/MWh';document.getElementById('kp').textContent=pct(s.p);document.getElementById('kv').textContent=(centralMargin>=0?'+':'−')+'£'+Math.abs(centralMargin).toFixed(1)+'/MWh';document.getElementById('ke').textContent=(s.expectedValue>=0?'+':'−')+'£'+Math.abs(s.expectedValue).toFixed(1)+'/MWh';document.getElementById('kamw').textContent=(s.avgMW/1000).toFixed(2)+' GW';document.getElementById('kamw2').textContent=rule==='budget'?'average auction award':'average below Government WTP';
-  const step=Math.max(1,Math.round(f50*.05)),nearLo=simulateBid(Math.max(0,selected-step),comps,own,gov,rule,runs,scenarios).p,nearHi=simulateBid(selected+step,comps,own,gov,rule,runs,scenarios).p;document.getElementById('trade').innerHTML=`<b>Bid trade-off:</b> £${step}/MWh lower gives about <b>${pct(nearLo)}</b> award probability; £${step}/MWh higher gives about <b>${pct(nearHi)}</b>. Your selected bid is <b>£${selected.toFixed(1)}/MWh</b>.`;
+  const step=Math.max(1,Math.round(f50*.05)),nearLo=simulateBid(Math.max(0,selected-step),comps,own,gov,rule,runs,scenarios).p,nearHi=simulateBid(selected+step,comps,own,gov,rule,runs,scenarios).p;
+  document.getElementById('trade').innerHTML=`<b>Bid trade-off:</b> £${step}/MWh lower gives about <b>${pct(nearLo)}</b> award probability; £${step}/MWh higher gives about <b>${pct(nearHi)}</b>. Your selected bid is <b>£${selected.toFixed(1)}/MWh</b>. <span class="muted">Expected value now includes the value of the future auction opportunity when you lose.</span>`;
+
   chart('prob',x,p,selected,'P(award)',true);chart('ev',x,ev,selected,'Expected margin',false);
   const thresholds=[],marginal=[];for(let k=0;k<runs;k++){const a=auctionOnce(comps,own,gov,rule,scenarios,k);thresholds.push(a.govValue);if(a.marginal!=null)marginal.push(a.marginal)}
   const qs=[[.1,'P10'],[.25,'P25'],[.5,'P50'],[.75,'P75'],[.9,'P90']];document.getElementById('thresholds').innerHTML=qs.map(([z,l])=>`<div class="kpi"><div class="muted">${l}</div><div class="big">${q(thresholds,z).toFixed(1)} £/MWh</div></div>`).join('');document.getElementById('thresholdNote').textContent=rule==='budget'?'Distribution of sampled Government budget converted into the implied marginal winning strike price across simulated auctions.':'Distribution of Government willingness to pay across simulated auctions.';
   document.getElementById('auctionOutcome').innerHTML=`<div class="barrow"><span>Expected capacity awarded</span><div class="bar"><span style="width:${Math.min(100,s.avgMW/Math.max(1,ownmw*3)*100)}%"></span></div><b>${(s.avgMW/1000).toFixed(2)} GW</b></div>${rule==='budget'?`<div class="barrow"><span>Expected annual payment</span><div class="bar"><span style="width:${Math.min(100,s.avgSpent/Math.max(1,q(thresholds,.5))*100)}%"></span></div><b>${money(s.avgSpent)}</b></div>`:''}<div style="margin-top:12px"><span class="status">${rule==='budget'?(s.avgSpent>=q(s.govVals,.5)*.99?'Budget usually binds':'Budget often not fully used'):'Awards occur when projects fall below sampled Government willingness to pay'}</span> <span class="status">${rule==='budget'?'Median marginal winning bid: '+(q(marginal,.5)?.toFixed(1)||'—')+' £/MWh':'P50 Government willingness to pay: '+gov.c50.toFixed(1)+' £/MWh'}</span></div>`;
+  document.getElementById('auctionOutcome').innerHTML += `<div style="margin-top:12px"><span class="status">Expected value if we win now: ${(s.expectedWinValue>=0?'+':'−')}£${Math.abs(s.expectedWinValue).toFixed(1)}/MWh</span> <span class="status">Expected value of future opportunity when we lose: ${(s.expectedLoseValue>=0?'+':'−')}£${Math.abs(s.expectedLoseValue).toFixed(1)}/MWh</span></div>`;
   const base=s,threatRows=[];for(let i=0;i<comps.length;i++){const t=simulateBid(selected,comps,own,gov,rule,runs,scenarios,i);threatRows.push({i,dp:t.p-base.p,dev:t.expectedValue-base.expectedValue})}threatRows.sort((a,b)=>a.dp-b.dp);
   document.getElementById('sensitivityTitle').textContent=rule==='budget'?'Which competitor matters most?':'How much does Government willingness to pay matter?';document.getElementById('sensitivityNote').textContent=rule==='budget'?'Sensitivity assumes one competitor bids 10% below its central case, holding the same simulated Government outcome and all other competitor outcomes constant.':'Under this simplified willingness-to-pay rule, competitor bids do not affect your award probability once they are below Government WTP; the key uncertainty is Government willingness to pay.';
   document.getElementById('threatTable').innerHTML=threatRows.map(t=>{const c=comps[t.i],label='Competitor '+String.fromCharCode(65+t.i);return `<tr><td><b>${label}</b></td><td>£${c.p50.toFixed(1)}/MWh</td><td>${pct(base.p)}</td><td class="${t.dp<0?'neg':'pos'}">${t.dp>=0?'+':''}${(t.dp*100).toFixed(1)} pp</td><td>${base.expectedValue>=0?'+':'−'}£${Math.abs(base.expectedValue).toFixed(1)}/MWh</td><td class="${t.dev<0?'neg':'pos'}">${t.dev>=0?'+':'−'}£${Math.abs(t.dev).toFixed(1)}/MWh</td></tr>`}).join('');
